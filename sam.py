@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 from pycocotools import mask as mask_utils
 
+## CHANGE THIS TO THE PATH OF THE IMAGE YOU WANT TO PROCESS
+image_path = "./input.png"
 
 def show_anns(anns, image, borders=True):
     """
@@ -156,7 +158,6 @@ model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"  # Use relative path for Hydra
 sam_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
 
 # Load and process your image
-image_path = "./test2.png"
 image = cv2.imread(image_path)
 if image is None:
     raise FileNotFoundError(
