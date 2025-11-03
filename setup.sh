@@ -79,18 +79,22 @@ if [ -f "$VENV_DIR/bin/activate" ]; then
     if [ -d "$CKPT_DIR" ]; then
       if ! ls "$CKPT_DIR"/*.pt >/dev/null 2>&1; then
         echo "No .pt checkpoints found in $CKPT_DIR. Downloading..."
-        if [ -x "$CKPT_DIR/download_ckpts.sh" ]; then
-          "$CKPT_DIR/download_ckpts.sh"
+        pushd "$CKPT_DIR" >/dev/null
+        if [ -x "download_ckpts.sh" ]; then
+          ./download_ckpts.sh
         else
-          bash "$CKPT_DIR/download_ckpts.sh"
+          bash ./download_ckpts.sh
         fi
+        popd >/dev/null
       else
         echo "Checkpoints already present in $CKPT_DIR"
       fi
     else
       echo "Creating checkpoints directory and downloading checkpoints..."
       mkdir -p "$CKPT_DIR"
-      bash "$CKPT_DIR/download_ckpts.sh"
+      pushd "$CKPT_DIR" >/dev/null
+      bash ./download_ckpts.sh
+      popd >/dev/null
     fi
   else
     echo "Virtual environment is ready at $VENV_DIR"
