@@ -1,1 +1,3 @@
 /checkpoints/*.pt
+external/
+mask_visualization.png

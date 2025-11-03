@@ -156,7 +156,12 @@ model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"  # Use relative path for Hydra
 sam_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
 
 # Load and process your image
-image = cv2.imread("./test2.png")
+image_path = "./test2.png"
+image = cv2.imread(image_path)
+if image is None:
+    raise FileNotFoundError(
+        f"Failed to read image at '{image_path}'. Ensure the file exists and the path is correct."
+    )
 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
 # Resize image if it's too large to avoid memory issues
