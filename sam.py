@@ -5,6 +5,7 @@ from sam2.utils.amg import rle_to_mask
 import cv2
 import numpy as np
 from pycocotools import mask as mask_utils
+import os
 
 ## CHANGE THIS TO THE PATH OF THE IMAGE YOU WANT TO PROCESS
 image_path = "./input.png"
@@ -120,7 +121,12 @@ def show_anns(anns, image, borders=True):
     overlay_with_text = cv2.addWeighted(overlay_with_text, 0.7, overlay, 0.3, 0)
     cv2.putText(overlay_with_text, text, (15, 35), font, font_scale, (255, 255, 255), thickness)
     
-    # Display the result
+    # Save the visualization BEFORE displaying
+    output_path = "mask_visualization.png"
+    cv2.imwrite(output_path, overlay_with_text)
+    print(f"Visualization saved to {output_path}")
+
+    # Display the result AFTER saving
     # Resize for display if too large
     display_h, display_w = overlay_with_text.shape[:2]
     max_display_size = 1200
@@ -136,11 +142,6 @@ def show_anns(anns, image, borders=True):
     print(f"Displaying visualization with {len(anns)} masks. Press any key to close.")
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    
-    # Save the visualization
-    output_path = "mask_visualization.png"
-    cv2.imwrite(output_path, overlay_with_text)
-    print(f"Visualization saved to {output_path}")
 
 # 1. Check if MPS is available and set it as the device
 if torch.backends.mps.is_available():
@@ -182,6 +183,33 @@ mask_generator = SAM2AutomaticMaskGenerator(sam_model, output_mode="coco_rle")
 print("Generating masks...")
 masks = mask_generator.generate(image_rgb)
 print(f"Found {len(masks)} masks.")
+
+
+
+output_masks_dir = "masks"
+os.makedirs(output_masks_dir, exist_ok=True)
+
+num_masks = len(masks)
+num_digits = max(4, len(str(max(1, num_masks))))
+
+for idx, ann in enumerate(masks, start=1):
+    # Decode mask based on output format
+    if isinstance(ann['segmentation'], dict):
+        rle = ann['segmentation']
+        if 'size' in rle and 'counts' in rle:
+            mask = mask_utils.decode(rle)
+        else:
+            mask = rle_to_mask(rle)
+    else:
+        mask = ann['segmentation'].astype(np.uint8)
+
+    # Ensure mask is 2D uint8 {0,255}
+    mask_uint8 = (mask.astype(np.uint8) * 255) if mask.max() <= 1 else (mask > 0).astype(np.uint8) * 255
+
+    filename = f"mask_{idx:0{num_digits}d}.png"
+    out_path = os.path.join(output_masks_dir, filename)
+    cv2.imwrite(out_path, mask_uint8)
+    # Optional: could add metadata later if needed
 
 # Visualize the masks
 show_anns(masks, image_rgb)
