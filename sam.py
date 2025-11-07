@@ -6,9 +6,14 @@ import cv2
 import numpy as np
 from pycocotools import mask as mask_utils
 import os
+from models import SAM2Model
 
 ## CHANGE THIS TO THE PATH OF THE IMAGE YOU WANT TO PROCESS
 image_path = "./input.png"
+## CHANGE THIS TO THE MODEL YOU WANT TO USE (LARGE, BASE_PLUS, SMALL, TINY)
+selected_model = SAM2Model.LARGE
+
+### ---- DON'T CHANGE ANYTHING BELOW THIS LINE ---- ###
 
 def show_anns(anns, image, borders=True):
     """
@@ -151,9 +156,8 @@ else:
 print(f"Using device: {device}")
 # ------------------------------
 
-# Load your model (e.g., specifying the config and checkpoint path)
-sam2_checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
-model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"  # Use relative path for Hydra
+sam2_checkpoint = selected_model.checkpoint_path
+model_cfg = selected_model.config_path
 
 # 2. Pass the detected device to your model
 sam_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
@@ -183,8 +187,6 @@ mask_generator = SAM2AutomaticMaskGenerator(sam_model, output_mode="coco_rle")
 print("Generating masks...")
 masks = mask_generator.generate(image_rgb)
 print(f"Found {len(masks)} masks.")
-
-
 
 output_masks_dir = "masks"
 os.makedirs(output_masks_dir, exist_ok=True)
