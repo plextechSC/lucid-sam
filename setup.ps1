@@ -221,10 +221,12 @@ Write-Host "Step 6: Installing other dependencies..." -ForegroundColor Yellow
 $ReqFile = Join-Path $ScriptDir "requirements.txt"
 if (Test-Path $ReqFile) {
     # Read requirements.txt and filter out torch/torchvision
-    $Requirements = Get-Content $ReqFile | Where-Object { 
-        $_ -notmatch '^\s*torch\s*$' -and 
-        $_ -notmatch '^\s*torchvision\s*$' -and 
-        $_ -notmatch '^\s*$' 
+    $AllRequirements = Get-Content $ReqFile
+    $Requirements = @()
+    foreach ($line in $AllRequirements) {
+        if ($line -notmatch '^\s*torch\s*$' -and $line -notmatch '^\s*torchvision\s*$' -and $line -notmatch '^\s*$') {
+            $Requirements += $line
+        }
     }
     
     if ($Requirements.Count -gt 0) {
