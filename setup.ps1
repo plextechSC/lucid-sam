@@ -8,8 +8,8 @@
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvDir = Join-Path $ScriptDir ".venv"
 
-# Error handling
-$ErrorActionPreference = "Stop"
+# Error handling - use Continue for pip operations to handle warnings gracefully
+$ErrorActionPreference = "Continue"
 
 # Check if Python is available
 $Python = $null
@@ -45,9 +45,14 @@ Write-Host "Using virtual environment: $VenvDir"
 
 # Upgrade pip
 Write-Host "Upgrading pip..."
-& $VenvPython -m pip install --upgrade pip
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Failed to upgrade pip"
+try {
+    & $VenvPython -m pip install --upgrade pip 2>&1 | Out-String | Write-Host
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
+        Write-Error "Failed to upgrade pip"
+        exit 1
+    }
+} catch {
+    Write-Error "Failed to upgrade pip: $($_.Exception.Message)"
     exit 1
 }
 
@@ -83,34 +88,74 @@ if ($NvidiaSmiPath) {
     }
 }
 
-# Uninstall existing torch/torchvision if present (to avoid conflicts)
+# Check if torch is already installed and uninstall if present (to avoid conflicts)
 Write-Host "Checking for existing PyTorch installation..."
-& $VenvPip uninstall -y torch torchvision 2>&1 | Out-Null
+$OriginalErrorAction = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+
+# Check if torch is installed by trying to import it
+$CheckTorchScript = @"
+try:
+    import torch
+    print("INSTALLED")
+except ImportError:
+    print("NOT_INSTALLED")
+"@
+
+# Suppress stderr and capture only stdout
+$ErrorActionPreference = "SilentlyContinue"
+try {
+    $TorchCheckOutput = $CheckTorchScript | & $VenvPython 2>&1 | Where-Object { $_ -is [string] -and $_ -notmatch "Error|Traceback|Warning" }
+    $TorchStatus = ($TorchCheckOutput -join "").Trim()
+} catch {
+    $TorchStatus = "NOT_INSTALLED"
+}
+if (-not $TorchStatus -or $TorchStatus -eq "") {
+    $TorchStatus = "NOT_INSTALLED"
+}
+$ErrorActionPreference = $OriginalErrorAction
+
+if ($TorchStatus -eq "INSTALLED") {
+    Write-Host "   Removing existing PyTorch installation..." -ForegroundColor Yellow
+    $ErrorActionPreference = "SilentlyContinue"
+    $null = & $VenvPip uninstall -y torch torchvision 2>&1 | Out-Null
+    $ErrorActionPreference = $OriginalErrorAction
+    Write-Host "   Removed existing PyTorch" -ForegroundColor Green
+} else {
+    Write-Host "   No existing PyTorch installation found" -ForegroundColor Gray
+}
 
 # Install PyTorch with appropriate CUDA support
+$ErrorActionPreference = "Continue"  # Allow warnings during PyTorch installation
 if ($HasCuda) {
     Write-Host "Installing PyTorch with CUDA support for NVIDIA GPU..."
     # Try CUDA 12.1 first (most recent, works with RTX 30xx series including RTX 3060 Ti)
     Write-Host "Attempting to install PyTorch with CUDA 12.1..."
-    & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-    if ($LASTEXITCODE -ne 0) {
+    $Output = & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 2>&1
+    $Output | Write-Host
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
         Write-Warning "Failed to install PyTorch with CUDA 12.1, trying CUDA 11.8..."
-        & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-        if ($LASTEXITCODE -ne 0) {
+        $Output = & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu118 2>&1
+        $Output | Write-Host
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
             Write-Warning "Failed to install PyTorch with CUDA 11.8, installing CPU version instead..."
-            & $VenvPip install torch torchvision
-            if ($LASTEXITCODE -ne 0) {
+            $Output = & $VenvPip install torch torchvision 2>&1
+            $Output | Write-Host
+            if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
                 Write-Error "Failed to install PyTorch"
                 exit 1
+            } else {
+                Write-Host "PyTorch (CPU) installed successfully" -ForegroundColor Yellow
             }
         } else {
-            Write-Host "PyTorch with CUDA 11.8 installed successfully"
+            Write-Host "PyTorch with CUDA 11.8 installed successfully" -ForegroundColor Green
         }
     } else {
-        Write-Host "PyTorch with CUDA 12.1 installed successfully"
+        Write-Host "PyTorch with CUDA 12.1 installed successfully" -ForegroundColor Green
     }
     
     # Verify CUDA is available in PyTorch
+    Write-Host ""
     Write-Host "Verifying CUDA availability in PyTorch..."
     $VerifyScript = @"
 import torch
@@ -123,18 +168,24 @@ else:
     print("WARNING: CUDA is not available in PyTorch despite NVIDIA GPU being detected.")
     print("This may indicate that CUDA drivers or toolkit need to be installed.")
 "@
-    $VerifyScript | & $VenvPython
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Could not verify CUDA availability"
+    try {
+        $VerifyOutput = $VerifyScript | & $VenvPython 2>&1
+        $VerifyOutput | Write-Host
+    } catch {
+        Write-Warning "Could not verify CUDA availability: $($_.Exception.Message)"
     }
 } else {
     Write-Host "No NVIDIA GPU detected or nvidia-smi not available. Installing CPU-only PyTorch..."
-    & $VenvPip install torch torchvision
-    if ($LASTEXITCODE -ne 0) {
+    $Output = & $VenvPip install torch torchvision 2>&1
+    $Output | Write-Host
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
         Write-Error "Failed to install PyTorch"
         exit 1
+    } else {
+        Write-Host "PyTorch (CPU) installed successfully" -ForegroundColor Green
     }
 }
+$ErrorActionPreference = "Stop"  # Restore strict error handling
 
 # Install other Python dependencies from requirements.txt (excluding torch)
 $ReqFile = Join-Path $ScriptDir "requirements.txt"
@@ -151,11 +202,14 @@ if (Test-Path $ReqFile) {
         # Create a temporary requirements file without torch
         $TempReqFile = Join-Path $ScriptDir "requirements_temp.txt"
         $Requirements | Out-File -FilePath $TempReqFile -Encoding utf8
-        & $VenvPip install -r $TempReqFile
+        $ErrorActionPreference = "Continue"
+        $Output = & $VenvPip install -r $TempReqFile 2>&1
+        $Output | Write-Host
         $InstallExitCode = $LASTEXITCODE
         Remove-Item $TempReqFile -ErrorAction SilentlyContinue
+        $ErrorActionPreference = "Stop"
         
-        if ($InstallExitCode -ne 0) {
+        if ($InstallExitCode -ne 0 -and $InstallExitCode -ne $null) {
             Write-Error "Failed to install dependencies"
             exit 1
         }
@@ -188,8 +242,11 @@ if (-not (Test-Path $Sam2Dir)) {
 }
 
 Write-Host "Installing sam2 as editable package..."
-& $VenvPip install -e $Sam2Dir
-if ($LASTEXITCODE -ne 0) {
+$ErrorActionPreference = "Continue"
+$Output = & $VenvPip install -e $Sam2Dir 2>&1
+$Output | Write-Host
+$ErrorActionPreference = "Stop"
+if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
     Write-Error "Failed to install sam2"
     exit 1
 }

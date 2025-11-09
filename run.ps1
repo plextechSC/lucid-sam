@@ -13,9 +13,30 @@ if (-not (Test-Path $VenvDir)) {
     Write-Host ".venv not found. Initializing environment via setup.ps1..."
     $SetupScript = Join-Path $ScriptDir "setup.ps1"
     if (Test-Path $SetupScript) {
-        & powershell -ExecutionPolicy Bypass -File $SetupScript
-        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
-            Write-Error "Setup failed"
+        # Run setup script and capture output
+        # Use Continue error action to handle warnings gracefully
+        $OriginalErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            $SetupOutput = & powershell -ExecutionPolicy Bypass -File $SetupScript 2>&1
+            $SetupOutput | Write-Host
+            $SetupExitCode = $LASTEXITCODE
+        } catch {
+            Write-Error "Setup script failed: $($_.Exception.Message)"
+            $ErrorActionPreference = $OriginalErrorAction
+            exit 1
+        }
+        $ErrorActionPreference = $OriginalErrorAction
+        
+        # Check if setup actually failed (non-zero exit code)
+        if ($SetupExitCode -ne 0 -and $SetupExitCode -ne $null) {
+            Write-Error "Setup failed with exit code $SetupExitCode"
+            exit 1
+        }
+        
+        # Verify venv was created successfully
+        if (-not (Test-Path $VenvDir)) {
+            Write-Error "Setup completed but virtual environment was not created at $VenvDir"
             exit 1
         }
     } else {
