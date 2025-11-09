@@ -180,23 +180,26 @@ if ($HasCuda) {
     
     # Verify CUDA is available in PyTorch
     Write-Host ""
-    Write-Host "Verifying CUDA availability in PyTorch..."
-    $VerifyScript = @"
-import torch
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"CUDA version: {torch.version.cuda}")
-    print(f"GPU device: {torch.cuda.get_device_name(0)}")
-else:
-    print("WARNING: CUDA is not available in PyTorch despite NVIDIA GPU being detected.")
-    print("This may indicate that CUDA drivers or toolkit need to be installed.")
-"@
+    Write-Host "Verifying CUDA availability in PyTorch..." -ForegroundColor Yellow
+    $TempVerifyScript = Join-Path $ScriptDir "verify_cuda_temp.py"
+    $VerifyScriptContent = "import torch`n"
+    $VerifyScriptContent += "print(f'PyTorch version: {torch.__version__}')`n"
+    $VerifyScriptContent += "print(f'CUDA available: {torch.cuda.is_available()}')`n"
+    $VerifyScriptContent += "if torch.cuda.is_available():`n"
+    $VerifyScriptContent += "    print(f'CUDA version: {torch.version.cuda}')`n"
+    $VerifyScriptContent += "    print(f'GPU device: {torch.cuda.get_device_name(0)}')`n"
+    $VerifyScriptContent += "else:`n"
+    $VerifyScriptContent += "    print('WARNING: CUDA is not available in PyTorch despite NVIDIA GPU being detected.')`n"
+    $VerifyScriptContent += "    print('This may indicate that CUDA drivers or toolkit need to be installed.')`n"
+    $VerifyScriptContent | Out-File -FilePath $TempVerifyScript -Encoding utf8
+    
     try {
-        $VerifyOutput = $VerifyScript | & $VenvPython 2>&1
+        $VerifyOutput = & $VenvPython $TempVerifyScript 2>&1
         $VerifyOutput | Write-Host
+        Remove-Item $TempVerifyScript -ErrorAction SilentlyContinue
     } catch {
         Write-Warning "Could not verify CUDA availability: $($_.Exception.Message)"
+        Remove-Item $TempVerifyScript -ErrorAction SilentlyContinue
     }
 } else {
     Write-Host "   No NVIDIA GPU detected. Installing CPU-only PyTorch..." -ForegroundColor Yellow
