@@ -10,24 +10,32 @@ $VenvDir = Join-Path $ScriptDir ".venv"
 
 # Check if venv exists, if not run setup
 if (-not (Test-Path $VenvDir)) {
-    Write-Host ".venv not found. Initializing environment via setup.ps1..."
+    Write-Host ".venv not found. Initializing environment via setup.ps1..." -ForegroundColor Yellow
+    Write-Host "This may take several minutes, especially when downloading PyTorch (~2-3 GB)..." -ForegroundColor Cyan
+    Write-Host ""
     $SetupScript = Join-Path $ScriptDir "setup.ps1"
     if (Test-Path $SetupScript) {
-        # Run setup script and capture output
-        # Use Continue error action to handle warnings gracefully
+        # Run setup script directly and let it output in real-time
+        # Use Start-Process to run in the same window with real-time output
         $OriginalErrorAction = $ErrorActionPreference
         $ErrorActionPreference = "Continue"
+        
+        # Run the script directly (not in a subprocess) so output streams in real-time
         try {
-            $SetupOutput = & powershell -ExecutionPolicy Bypass -File $SetupScript 2>&1
-            $SetupOutput | Write-Host
+            # Change to script directory and run setup
+            Push-Location $ScriptDir
+            & powershell -ExecutionPolicy Bypass -File $SetupScript
             $SetupExitCode = $LASTEXITCODE
+            Pop-Location
         } catch {
+            Pop-Location
             Write-Error "Setup script failed: $($_.Exception.Message)"
             $ErrorActionPreference = $OriginalErrorAction
             exit 1
         }
         $ErrorActionPreference = $OriginalErrorAction
         
+        Write-Host ""
         # Check if setup actually failed (non-zero exit code)
         if ($SetupExitCode -ne 0 -and $SetupExitCode -ne $null) {
             Write-Error "Setup failed with exit code $SetupExitCode"
@@ -39,6 +47,9 @@ if (-not (Test-Path $VenvDir)) {
             Write-Error "Setup completed but virtual environment was not created at $VenvDir"
             exit 1
         }
+        
+        Write-Host "Setup completed successfully!" -ForegroundColor Green
+        Write-Host ""
     } else {
         Write-Error "setup.ps1 not found. Please run setup.ps1 manually."
         exit 1
