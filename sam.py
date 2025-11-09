@@ -8,24 +8,59 @@ from pycocotools import mask as mask_utils
 import os
 from models import SAM2Model
 
-## CHANGE THIS TO THE PATH OF THE IMAGE YOU WANT TO PROCESS
-image_path = "./input.png"
-## CHANGE THIS TO THE MODEL YOU WANT TO USE (LARGE, BASE_PLUS, SMALL, TINY)
-selected_model = SAM2Model.LARGE
 
-### ---- DON'T CHANGE ANYTHING BELOW THIS LINE ---- ###
-
-def show_anns(anns, image, borders=True):
+def show_anns(anns, image, output_path="mask_visualization.png", borders=True, display=True):
     """
-    Display masks on the image using OpenCV.
+    Create and optionally display masks on the image using OpenCV.
     
     Args:
         anns: List of mask dictionaries from SAM2AutomaticMaskGenerator
         image: The original image (numpy array in RGB format)
+        output_path: Path where to save the visualization
         borders: Whether to draw borders around masks
+        display: Whether to display the visualization window (default: True)
     """
     if len(anns) == 0:
-        print("No masks to visualize")
+        print("No masks to visualize - saving image with no masks annotation")
+        # Still create and save an image even with no masks
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        overlay_with_text = image_bgr.copy()
+        
+        # Add text indicating no masks were found
+        text = 'Found 0 masks'
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 1.0
+        thickness = 2
+        (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+        
+        # Draw a semi-transparent rectangle for text background
+        overlay = overlay_with_text.copy()
+        cv2.rectangle(overlay, (10, 10), (20 + text_width, 40 + text_height), (0, 0, 0), -1)
+        overlay_with_text = cv2.addWeighted(overlay, 0.7, overlay_with_text, 0.3, 0)
+        cv2.putText(overlay_with_text, text, (15, 35), font, font_scale, (255, 255, 255), thickness)
+        
+        # Save the visualization
+        os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
+        cv2.imwrite(output_path, overlay_with_text)
+        print(f"Visualization saved to {output_path}")
+        
+        # Display only if requested
+        if display:
+            display_h, display_w = overlay_with_text.shape[:2]
+            max_display_size = 1200
+            if max(display_h, display_w) > max_display_size:
+                scale = max_display_size / max(display_h, display_w)
+                display_w = int(display_w * scale)
+                display_h = int(display_h * scale)
+                display_image = cv2.resize(overlay_with_text, (display_w, display_h))
+            else:
+                display_image = overlay_with_text
+            
+            cv2.imshow('SAM2 Mask Visualization', display_image)
+            print(f"Displaying visualization. Press any key to close.")
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        
         return
     
     # Convert image from RGB to BGR for OpenCV
@@ -126,92 +161,135 @@ def show_anns(anns, image, borders=True):
     overlay_with_text = cv2.addWeighted(overlay_with_text, 0.7, overlay, 0.3, 0)
     cv2.putText(overlay_with_text, text, (15, 35), font, font_scale, (255, 255, 255), thickness)
     
-    # Save the visualization BEFORE displaying
-    output_path = "mask_visualization.png"
+    # Save the visualization
+    os.makedirs(os.path.dirname(output_path) if os.path.dirname(output_path) else '.', exist_ok=True)
     cv2.imwrite(output_path, overlay_with_text)
     print(f"Visualization saved to {output_path}")
 
-    # Display the result AFTER saving
-    # Resize for display if too large
-    display_h, display_w = overlay_with_text.shape[:2]
-    max_display_size = 1200
-    if max(display_h, display_w) > max_display_size:
-        scale = max_display_size / max(display_h, display_w)
-        display_w = int(display_w * scale)
-        display_h = int(display_h * scale)
-        display_image = cv2.resize(overlay_with_text, (display_w, display_h))
-    else:
-        display_image = overlay_with_text
-    
-    cv2.imshow('SAM2 Mask Visualization', display_image)
-    print(f"Displaying visualization with {len(anns)} masks. Press any key to close.")
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-# 1. Check if MPS is available and set it as the device
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
-print(f"Using device: {device}")
-# ------------------------------
-
-sam2_checkpoint = selected_model.checkpoint_path
-model_cfg = selected_model.config_path
-
-# 2. Pass the detected device to your model
-sam_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
-
-# Load and process your image
-image = cv2.imread(image_path)
-if image is None:
-    raise FileNotFoundError(
-        f"Failed to read image at '{image_path}'. Ensure the file exists and the path is correct."
-    )
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-# Resize image if it's too large to avoid memory issues
-# Calculate the maximum dimension and resize if needed
-max_dimension = 2048  # Maximum dimension for processing
-h, w = image_rgb.shape[:2]
-if max(h, w) > max_dimension:
-    scale = max_dimension / max(h, w)
-    new_w = int(w * scale)
-    new_h = int(h * scale)
-    image_rgb = cv2.resize(image_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
-    print(f"Resized image from {w}x{h} to {new_w}x{new_h}")
-
-# Use coco_rle output mode for memory efficiency with large images
-mask_generator = SAM2AutomaticMaskGenerator(sam_model, output_mode="coco_rle")
-
-print("Generating masks...")
-masks = mask_generator.generate(image_rgb)
-print(f"Found {len(masks)} masks.")
-
-output_masks_dir = "masks"
-os.makedirs(output_masks_dir, exist_ok=True)
-
-num_masks = len(masks)
-num_digits = max(4, len(str(max(1, num_masks))))
-
-for idx, ann in enumerate(masks, start=1):
-    # Decode mask based on output format
-    if isinstance(ann['segmentation'], dict):
-        rle = ann['segmentation']
-        if 'size' in rle and 'counts' in rle:
-            mask = mask_utils.decode(rle)
+    # Display the result only if requested
+    if display:
+        # Resize for display if too large
+        display_h, display_w = overlay_with_text.shape[:2]
+        max_display_size = 1200
+        if max(display_h, display_w) > max_display_size:
+            scale = max_display_size / max(display_h, display_w)
+            display_w = int(display_w * scale)
+            display_h = int(display_h * scale)
+            display_image = cv2.resize(overlay_with_text, (display_w, display_h))
         else:
-            mask = rle_to_mask(rle)
+            display_image = overlay_with_text
+        
+        cv2.imshow('SAM2 Mask Visualization', display_image)
+        print(f"Displaying visualization with {len(anns)} masks. Press any key to close.")
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+def process_image_with_sam(
+    image_path,
+    selected_model,
+    visualize=False,
+    output_masks=False,
+    visualization_output_path="mask_visualization.png",
+    max_dimension=2048,
+    output_masks_dir="masks"
+):
+    """
+    Process an image with SAM2 model to generate masks.
+    
+    Args:
+        image_path: Path to the input image
+        selected_model: SAM2Model enum value (e.g., SAM2Model.LARGE)
+        visualize: Whether to create and display a visualization (default: False)
+        output_masks: Whether to save individual masks to a folder (default: False)
+        visualization_output_path: Path where to save the visualization (default: "mask_visualization.png")
+        max_dimension: Maximum dimension for image processing (default: 2048)
+        output_masks_dir: Directory where to save individual masks if output_masks is True (default: "masks")
+    
+    Returns:
+        List of mask dictionaries from SAM2AutomaticMaskGenerator
+    """
+    # Check if MPS is available and set it as the device
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
     else:
-        mask = ann['segmentation'].astype(np.uint8)
+        device = torch.device("cpu")
+    print(f"Using device: {device}")
+    
+    sam2_checkpoint = selected_model.checkpoint_path
+    model_cfg = selected_model.config_path
+    
+    # Build the SAM2 model
+    sam_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
+    
+    # Load and process your image
+    image = cv2.imread(image_path)
+    if image is None:
+        raise FileNotFoundError(
+            f"Failed to read image at '{image_path}'. Ensure the file exists and the path is correct."
+        )
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # Resize image if it's too large to avoid memory issues
+    h, w = image_rgb.shape[:2]
+    if max(h, w) > max_dimension:
+        scale = max_dimension / max(h, w)
+        new_w = int(w * scale)
+        new_h = int(h * scale)
+        image_rgb = cv2.resize(image_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        print(f"Resized image from {w}x{h} to {new_w}x{new_h}")
+    
+    # Use coco_rle output mode for memory efficiency with large images
+    mask_generator = SAM2AutomaticMaskGenerator(sam_model, output_mode="coco_rle")
+    
+    print("Generating masks...")
+    masks = mask_generator.generate(image_rgb)
+    print(f"Found {len(masks)} masks.")
+    
+    # Save individual masks if requested
+    if output_masks:
+        os.makedirs(output_masks_dir, exist_ok=True)
+        
+        num_masks = len(masks)
+        num_digits = max(4, len(str(max(1, num_masks))))
+        
+        for idx, ann in enumerate(masks, start=1):
+            # Decode mask based on output format
+            if isinstance(ann['segmentation'], dict):
+                rle = ann['segmentation']
+                if 'size' in rle and 'counts' in rle:
+                    mask = mask_utils.decode(rle)
+                else:
+                    mask = rle_to_mask(rle)
+            else:
+                mask = ann['segmentation'].astype(np.uint8)
+            
+            # Ensure mask is 2D uint8 {0,255}
+            mask_uint8 = (mask.astype(np.uint8) * 255) if mask.max() <= 1 else (mask > 0).astype(np.uint8) * 255
+            
+            filename = f"mask_{idx:0{num_digits}d}.png"
+            out_path = os.path.join(output_masks_dir, filename)
+            cv2.imwrite(out_path, mask_uint8)
+        
+        print(f"Saved {len(masks)} masks to {output_masks_dir}/")
+    
+    # Always create and save visualization if output path is provided
+    # Only display it if visualize=True
+    if visualization_output_path:
+        show_anns(masks, image_rgb, output_path=visualization_output_path, display=visualize)
+    
+    return masks
 
-    # Ensure mask is 2D uint8 {0,255}
-    mask_uint8 = (mask.astype(np.uint8) * 255) if mask.max() <= 1 else (mask > 0).astype(np.uint8) * 255
 
-    filename = f"mask_{idx:0{num_digits}d}.png"
-    out_path = os.path.join(output_masks_dir, filename)
-    cv2.imwrite(out_path, mask_uint8)
-    # Optional: could add metadata later if needed
-
-# Visualize the masks
-show_anns(masks, image_rgb)
+# if __name__ == "__main__":
+#     # Example usage
+#     image_path = "./input.png"
+#     selected_model = SAM2Model.LARGE
+    
+#     masks = process_image_with_sam(
+#         image_path=image_path,
+#         selected_model=selected_model,
+#         visualize=False,
+#         output_masks=False,
+#         visualization_output_path="mask_visualization.png"
+#     )

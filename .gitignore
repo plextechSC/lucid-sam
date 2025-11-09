@@ -2,3 +2,6 @@
 external/
 masks/
 mask_visualization.png
+output-*/
+input_images/
+__pycache__/

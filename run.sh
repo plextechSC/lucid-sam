@@ -20,6 +20,6 @@ else
   source "$VENV_DIR/bin/activate"
 fi
 
-exec python3 "$SCRIPT_DIR/sam.py"
+exec python3 "$SCRIPT_DIR/main.py"
 
 
