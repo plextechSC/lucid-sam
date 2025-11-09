@@ -209,12 +209,16 @@ def process_image_with_sam(
     Returns:
         List of mask dictionaries from SAM2AutomaticMaskGenerator
     """
-    # Check if MPS is available and set it as the device
-    if torch.backends.mps.is_available():
+    # Check for available device: prefer CUDA (NVIDIA GPU), then MPS (Apple Silicon), then CPU
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        print(f"Using device: {device} (NVIDIA GPU detected)")
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
         device = torch.device("mps")
+        print(f"Using device: {device} (Apple Silicon GPU detected)")
     else:
         device = torch.device("cpu")
-    print(f"Using device: {device}")
+        print(f"Using device: {device} (no GPU acceleration available)")
     
     sam2_checkpoint = selected_model.checkpoint_path
     model_cfg = selected_model.config_path
