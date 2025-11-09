@@ -4,16 +4,6 @@
 # Note: If you encounter execution policy errors, run:
 #   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
-# Force output buffering to be disabled for real-time progress
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$Host.UI.RawUI.BufferSize = New-Object Management.Automation.Host.Size(120, 9999)
-
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "SAM2 Setup Script" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host ""
-
 # Get the script directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvDir = Join-Path $ScriptDir ".venv"
@@ -34,19 +24,12 @@ if (Get-Command python3 -ErrorAction SilentlyContinue) {
 
 # Create venv if it doesn't exist
 if (-not (Test-Path $VenvDir)) {
-    Write-Host "Step 1: Creating virtual environment..." -ForegroundColor Yellow
-    Write-Host "   Location: $VenvDir" -ForegroundColor Gray
+    Write-Host "Creating virtual environment at $VenvDir"
     & $Python -m venv $VenvDir
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Failed to create virtual environment"
         exit 1
     }
-    Write-Host "   ✓ Virtual environment created" -ForegroundColor Green
-    Write-Host ""
-} else {
-    Write-Host "Step 1: Virtual environment already exists" -ForegroundColor Green
-    Write-Host "   Location: $VenvDir" -ForegroundColor Gray
-    Write-Host ""
 }
 
 # Get paths to venv executables
@@ -58,23 +41,23 @@ if (-not (Test-Path $VenvPython)) {
     exit 1
 }
 
+Write-Host "Using virtual environment: $VenvDir"
+
 # Upgrade pip
-Write-Host "Step 2: Upgrading pip..." -ForegroundColor Yellow
+Write-Host "Upgrading pip..."
 try {
-    & $VenvPython -m pip install --upgrade pip --quiet
+    & $VenvPython -m pip install --upgrade pip 2>&1 | Out-String | Write-Host
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
         Write-Error "Failed to upgrade pip"
         exit 1
     }
-    Write-Host "   ✓ pip upgraded" -ForegroundColor Green
 } catch {
     Write-Error "Failed to upgrade pip: $($_.Exception.Message)"
     exit 1
 }
 
 # Check for NVIDIA GPU and install appropriate PyTorch version
-Write-Host ""
-Write-Host "Step 3: Checking for NVIDIA GPU and CUDA support..." -ForegroundColor Yellow
+Write-Host "Checking for NVIDIA GPU and CUDA support..."
 $HasCuda = $false
 $CudaVersion = $null
 
@@ -106,8 +89,7 @@ if ($NvidiaSmiPath) {
 }
 
 # Check if torch is already installed and uninstall if present (to avoid conflicts)
-Write-Host ""
-Write-Host "Step 4: Checking for existing PyTorch installation..." -ForegroundColor Yellow
+Write-Host "Checking for existing PyTorch installation..."
 $OriginalErrorAction = $ErrorActionPreference
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -144,27 +126,21 @@ if ($TorchStatus -eq "INSTALLED") {
 }
 
 # Install PyTorch with appropriate CUDA support
-Write-Host ""
-Write-Host "Step 5: Installing PyTorch..." -ForegroundColor Yellow
 $ErrorActionPreference = "Continue"  # Allow warnings during PyTorch installation
 if ($HasCuda) {
-    Write-Host "   GPU detected! Installing PyTorch with CUDA support" -ForegroundColor Green
-    Write-Host "   This will download ~2-3 GB and may take 5-15 minutes..." -ForegroundColor Cyan
-    Write-Host "   Please be patient, download progress will be shown below..." -ForegroundColor Gray
-    Write-Host ""
+    Write-Host "Installing PyTorch with CUDA support for NVIDIA GPU..."
     # Try CUDA 12.1 first (most recent, works with RTX 30xx series including RTX 3060 Ti)
-    # Run pip directly without capturing to allow real-time output
-    & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --progress-bar pretty
+    Write-Host "Attempting to install PyTorch with CUDA 12.1..."
+    $Output = & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 2>&1
+    $Output | Write-Host
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
         Write-Warning "Failed to install PyTorch with CUDA 12.1, trying CUDA 11.8..."
-        Write-Host "Downloading and installing PyTorch with CUDA 11.8..." -ForegroundColor Gray
-        Write-Host ""
-        & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu118 --progress-bar pretty
+        $Output = & $VenvPip install torch torchvision --index-url https://download.pytorch.org/whl/cu118 2>&1
+        $Output | Write-Host
         if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
             Write-Warning "Failed to install PyTorch with CUDA 11.8, installing CPU version instead..."
-            Write-Host "Installing CPU-only PyTorch..." -ForegroundColor Gray
-            Write-Host ""
-            & $VenvPip install torch torchvision --progress-bar pretty
+            $Output = & $VenvPip install torch torchvision 2>&1
+            $Output | Write-Host
             if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
                 Write-Error "Failed to install PyTorch"
                 exit 1
@@ -180,32 +156,28 @@ if ($HasCuda) {
     
     # Verify CUDA is available in PyTorch
     Write-Host ""
-    Write-Host "Verifying CUDA availability in PyTorch..." -ForegroundColor Yellow
-    $TempVerifyScript = Join-Path $ScriptDir "verify_cuda_temp.py"
-    $VerifyScriptContent = "import torch`n"
-    $VerifyScriptContent += "print(f'PyTorch version: {torch.__version__}')`n"
-    $VerifyScriptContent += "print(f'CUDA available: {torch.cuda.is_available()}')`n"
-    $VerifyScriptContent += "if torch.cuda.is_available():`n"
-    $VerifyScriptContent += "    print(f'CUDA version: {torch.version.cuda}')`n"
-    $VerifyScriptContent += "    print(f'GPU device: {torch.cuda.get_device_name(0)}')`n"
-    $VerifyScriptContent += "else:`n"
-    $VerifyScriptContent += "    print('WARNING: CUDA is not available in PyTorch despite NVIDIA GPU being detected.')`n"
-    $VerifyScriptContent += "    print('This may indicate that CUDA drivers or toolkit need to be installed.')`n"
-    $VerifyScriptContent | Out-File -FilePath $TempVerifyScript -Encoding utf8
-    
+    Write-Host "Verifying CUDA availability in PyTorch..."
+    $VerifyScript = @"
+import torch
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"GPU device: {torch.cuda.get_device_name(0)}")
+else:
+    print("WARNING: CUDA is not available in PyTorch despite NVIDIA GPU being detected.")
+    print("This may indicate that CUDA drivers or toolkit need to be installed.")
+"@
     try {
-        $VerifyOutput = & $VenvPython $TempVerifyScript 2>&1
+        $VerifyOutput = $VerifyScript | & $VenvPython 2>&1
         $VerifyOutput | Write-Host
-        Remove-Item $TempVerifyScript -ErrorAction SilentlyContinue
     } catch {
         Write-Warning "Could not verify CUDA availability: $($_.Exception.Message)"
-        Remove-Item $TempVerifyScript -ErrorAction SilentlyContinue
     }
 } else {
-    Write-Host "   No NVIDIA GPU detected. Installing CPU-only PyTorch..." -ForegroundColor Yellow
-    Write-Host "   This will download ~200 MB..." -ForegroundColor Gray
-    Write-Host ""
-    & $VenvPip install torch torchvision --progress-bar pretty
+    Write-Host "No NVIDIA GPU detected or nvidia-smi not available. Installing CPU-only PyTorch..."
+    $Output = & $VenvPip install torch torchvision 2>&1
+    $Output | Write-Host
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
         Write-Error "Failed to install PyTorch"
         exit 1
@@ -216,17 +188,14 @@ if ($HasCuda) {
 $ErrorActionPreference = "Stop"  # Restore strict error handling
 
 # Install other Python dependencies from requirements.txt (excluding torch)
-Write-Host ""
-Write-Host "Step 6: Installing other dependencies..." -ForegroundColor Yellow
 $ReqFile = Join-Path $ScriptDir "requirements.txt"
 if (Test-Path $ReqFile) {
+    Write-Host "Installing other dependencies from requirements.txt..."
     # Read requirements.txt and filter out torch/torchvision
-    $AllRequirements = Get-Content $ReqFile
-    $Requirements = @()
-    foreach ($line in $AllRequirements) {
-        if ($line -notmatch '^\s*torch\s*$' -and $line -notmatch '^\s*torchvision\s*$' -and $line -notmatch '^\s*$') {
-            $Requirements += $line
-        }
+    $Requirements = Get-Content $ReqFile | Where-Object { 
+        $_ -notmatch '^\s*torch\s*$' -and 
+        $_ -notmatch '^\s*torchvision\s*$' -and 
+        $_ -notmatch '^\s*$' 
     }
     
     if ($Requirements.Count -gt 0) {
@@ -234,7 +203,8 @@ if (Test-Path $ReqFile) {
         $TempReqFile = Join-Path $ScriptDir "requirements_temp.txt"
         $Requirements | Out-File -FilePath $TempReqFile -Encoding utf8
         $ErrorActionPreference = "Continue"
-        & $VenvPip install -r $TempReqFile --progress-bar pretty
+        $Output = & $VenvPip install -r $TempReqFile 2>&1
+        $Output | Write-Host
         $InstallExitCode = $LASTEXITCODE
         Remove-Item $TempReqFile -ErrorAction SilentlyContinue
         $ErrorActionPreference = "Stop"
@@ -243,20 +213,17 @@ if (Test-Path $ReqFile) {
             Write-Error "Failed to install dependencies"
             exit 1
         }
-        Write-Host "   ✓ Dependencies installed" -ForegroundColor Green
     } else {
-        Write-Host "   No additional dependencies to install" -ForegroundColor Gray
+        Write-Host "No additional dependencies to install (torch already installed)"
     }
 } else {
     Write-Warning "requirements.txt not found, skipping dependency installation"
 }
 
 # Install facebookresearch/sam2 as editable in external/sam2
-Write-Host ""
-Write-Host "Step 7: Setting up SAM2..." -ForegroundColor Yellow
 $Sam2Dir = Join-Path $ScriptDir "external\sam2"
 if (-not (Test-Path $Sam2Dir)) {
-    Write-Host "   Cloning sam2 repository..." -ForegroundColor Gray
+    Write-Host "Installing sam2 (facebookresearch/sam2) into $Sam2Dir"
     $ExternalDir = Split-Path -Parent $Sam2Dir
     if (-not (Test-Path $ExternalDir)) {
         New-Item -ItemType Directory -Path $ExternalDir -Force | Out-Null
@@ -274,21 +241,17 @@ if (-not (Test-Path $Sam2Dir)) {
     }
 }
 
-Write-Host "   Installing sam2 as editable package..." -ForegroundColor Gray
-Write-Host "   This may take a few minutes..." -ForegroundColor Gray
-Write-Host ""
+Write-Host "Installing sam2 as editable package..."
 $ErrorActionPreference = "Continue"
-& $VenvPip install -e $Sam2Dir --progress-bar pretty
+$Output = & $VenvPip install -e $Sam2Dir 2>&1
+$Output | Write-Host
 $ErrorActionPreference = "Stop"
 if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
     Write-Error "Failed to install sam2"
     exit 1
 }
-Write-Host "   ✓ sam2 installed" -ForegroundColor Green
 
 # Ensure model checkpoints are present; download if missing
-Write-Host ""
-Write-Host "Step 8: Checking for model checkpoints..." -ForegroundColor Yellow
 $CkptDir = Join-Path $ScriptDir "checkpoints"
 if (Test-Path $CkptDir) {
     $CkptFiles = Get-ChildItem -Path $CkptDir -Filter "*.pt" -ErrorAction SilentlyContinue
@@ -318,11 +281,5 @@ if (Test-Path $CkptDir) {
     }
 }
 
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Green
-Write-Host "Setup Complete!" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "You can now run the script with: .\run.ps1" -ForegroundColor Cyan
-Write-Host ""
+Write-Host "Setup complete!"
 
