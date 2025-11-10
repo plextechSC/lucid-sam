@@ -7,7 +7,7 @@ from models import SAM2Model
 INPUT_DIR = "input_images"
 
 # All available models to test
-MODELS = [SAM2Model.TINY, SAM2Model.SMALL, SAM2Model.BASE_PLUS, SAM2Model.LARGE]
+MODELS = [SAM2Model.TINY, SAM2Model.LARGE]
 
 def parse_image_filename(filename):
     """
