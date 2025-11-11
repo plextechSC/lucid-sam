@@ -4,7 +4,8 @@
  - Clone this repo
  - Make sure you're in the `/lucid-sam` folder
  - Run this command: `sh run.sh`
- - To change the images you process, put your images in `/input_images`.
+ - To change the images you process, put your images in `/input_images/[scenario name]`.
+ - Example scenario name: "highway sunset"
 
 ## Windows
  - Clone this repo
