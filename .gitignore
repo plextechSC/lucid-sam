@@ -2,3 +2,6 @@
 external/
 masks/
 mask_visualization.png
+*.DS_Store
+output/
+input_images/
