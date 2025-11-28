@@ -144,10 +144,10 @@ def process_image_with_sam(
     visualize=False,
     output_masks=False,
     visualization_output_path="mask_visualization.png",
-    max_dimension=2048,
     output_masks_dir="masks",
     mask_name_digits=4,
-    mask_start_index=1
+    mask_start_index=1,
+    max_dimension=None
 ):
     """
     Process an image with SAM2 model to generate masks.
@@ -158,10 +158,10 @@ def process_image_with_sam(
         visualize: Whether to create and display a visualization (default: False)
         output_masks: Whether to save individual masks to a folder (default: False)
         visualization_output_path: Path where to save the visualization (default: "mask_visualization.png")
-        max_dimension: Maximum dimension for image processing (default: 2048)
         output_masks_dir: Directory where to save individual masks if output_masks is True (default: "masks")
         mask_name_digits: Number of digits for mask filenames (default: 4)
         mask_start_index: Starting index for mask numbering (default: 1)
+        max_dimension: Maximum dimension for resizing (default: None = no downsampling)
     
     Returns:
         List of mask dictionaries from SAM2AutomaticMaskGenerator
@@ -190,15 +190,17 @@ def process_image_with_sam(
             f"Failed to read image at '{image_path}'. Ensure the file exists and the path is correct."
         )
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    
-    # Resize image if it's too large to avoid memory issues
     h, w = image_rgb.shape[:2]
-    if max(h, w) > max_dimension:
+    
+    # Optionally resize if max_dimension is set
+    if max_dimension is not None and max(h, w) > max_dimension:
         scale = max_dimension / max(h, w)
         new_w = int(w * scale)
         new_h = int(h * scale)
         image_rgb = cv2.resize(image_rgb, (new_w, new_h), interpolation=cv2.INTER_AREA)
         print(f"Resized image from {w}x{h} to {new_w}x{new_h}")
+    else:
+        print(f"Processing image at full resolution: {w}x{h}")
     
     # Use coco_rle output mode for memory efficiency with large images
     mask_generator = SAM2AutomaticMaskGenerator(sam_model, output_mode="coco_rle")

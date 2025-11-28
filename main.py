@@ -10,6 +10,9 @@ OUTPUT_DIR = "output"
 # Model to use
 MODEL = SAM2Model.LARGE
 
+# Max dimension for downsampling (None = full resolution, or set e.g. 2048 for local testing)
+MAX_DIMENSION = None
+
 
 def process_all_images():
     """
@@ -62,10 +65,10 @@ def process_all_images():
                 visualize=False,
                 output_masks=True,
                 visualization_output_path=None,
-                max_dimension=2048,
                 output_masks_dir=str(masks_dir),
                 mask_name_digits=3,  # Use 3-digit mask names (000.png, 001.png)
-                mask_start_index=0   # Start from 0
+                mask_start_index=0,  # Start from 0
+                max_dimension=MAX_DIMENSION
             )
             
             num_masks = len(masks)

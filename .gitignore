@@ -5,3 +5,4 @@ mask_visualization.png
 *.DS_Store
 output/
 input_images/
+__pycache__/
