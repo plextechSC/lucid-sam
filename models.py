@@ -1,12 +1,13 @@
 from enum import Enum
 
-class SAM2Model(Enum):
-    TINY = ("./checkpoints/sam2.1_hiera_tiny.pt", "configs/sam2.1/sam2.1_hiera_t.yaml")
-    SMALL = ("./checkpoints/sam2.1_hiera_small.pt", "configs/sam2.1/sam2.1_hiera_s.yaml")
-    BASE_PLUS = ("./checkpoints/sam2.1_hiera_base_plus.pt", "configs/sam2.1/sam2.1_hiera_b+.yaml")
-    LARGE = ("./checkpoints/sam2.1_hiera_large.pt", "configs/sam2.1/sam2.1_hiera_l.yaml")
-    
-    def __init__(self, checkpoint_path, config_path):
+
+class SAMModel(Enum):
+    """SAM 1 model variants with checkpoint paths and model types."""
+    VIT_B = ("./checkpoints/sam_vit_b_01ec64.pth", "vit_b")
+    VIT_L = ("./checkpoints/sam_vit_l_0b3195.pth", "vit_l")
+    VIT_H = ("./checkpoints/sam_vit_h_4b8939.pth", "vit_h")
+
+    def __init__(self, checkpoint_path, model_type):
         self.checkpoint_path = checkpoint_path
-        self.config_path = config_path
+        self.model_type = model_type
 

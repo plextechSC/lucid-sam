@@ -1,14 +1,14 @@
 import os
 from pathlib import Path
 from sam import process_image_with_sam
-from models import SAM2Model
+from models import SAMModel
 
 # Input and output directories
 INPUT_DIR = "input_images"
 OUTPUT_DIR = "output"
 
 # Model to use
-MODEL = SAM2Model.LARGE
+MODEL = SAMModel.VIT_H
 
 # Max dimension for downsampling (None = full resolution, or set e.g. 2048 for local testing)
 MAX_DIMENSION = None

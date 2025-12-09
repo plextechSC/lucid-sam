@@ -60,42 +60,33 @@ if [ -f "$VENV_DIR/bin/activate" ]; then
       pip install -r "$REQ_FILE"
     fi
 
-    # Install facebookresearch/sam2 as editable in external/sam2
-    SAM2_DIR="$SCRIPT_DIR/external/sam2"
-    if [ ! -d "$SAM2_DIR" ]; then
-      echo "Installing sam2 (facebookresearch/sam2) into $SAM2_DIR"
-      mkdir -p "$(dirname "$SAM2_DIR")"
-      if command -v git >/dev/null 2>&1; then
-        git clone https://github.com/facebookresearch/sam2.git "$SAM2_DIR"
-      else
-        echo "git is required to install sam2. Please install git and re-run." >&2
-        return 1 2>/dev/null
-      fi
-    fi
-    pip install -e "$SAM2_DIR"
-
-    # Ensure model checkpoints are present; download if missing
+    # Ensure SAM 1 model checkpoints are present; download if missing
     CKPT_DIR="$SCRIPT_DIR/checkpoints"
-    if [ -d "$CKPT_DIR" ]; then
-      if ! ls "$CKPT_DIR"/*.pt >/dev/null 2>&1; then
-        echo "No .pt checkpoints found in $CKPT_DIR. Downloading..."
-        pushd "$CKPT_DIR" >/dev/null
-        if [ -x "download_ckpts.sh" ]; then
-          ./download_ckpts.sh
-        else
-          bash ./download_ckpts.sh
-        fi
-        popd >/dev/null
+    mkdir -p "$CKPT_DIR"
+
+    # SAM 1 checkpoint URLs
+    SAM_VIT_H_URL="https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth"
+    SAM_VIT_L_URL="https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
+    SAM_VIT_B_URL="https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth"
+
+    download_if_missing() {
+      local url="$1"
+      local filename="$(basename "$url")"
+      local filepath="$CKPT_DIR/$filename"
+      if [ ! -f "$filepath" ]; then
+        echo "Downloading $filename..."
+        curl -L -o "$filepath" "$url"
       else
-        echo "Checkpoints already present in $CKPT_DIR"
+        echo "Checkpoint $filename already exists."
       fi
-    else
-      echo "Creating checkpoints directory and downloading checkpoints..."
-      mkdir -p "$CKPT_DIR"
-      pushd "$CKPT_DIR" >/dev/null
-      bash ./download_ckpts.sh
-      popd >/dev/null
-    fi
+    }
+
+    # Download all SAM 1 checkpoints
+    download_if_missing "$SAM_VIT_H_URL"
+    download_if_missing "$SAM_VIT_L_URL"
+    download_if_missing "$SAM_VIT_B_URL"
+
+    echo "SAM 1 checkpoints ready in $CKPT_DIR"
   else
     echo "Virtual environment is ready at $VENV_DIR"
     echo "To activate it in your current shell, run:"

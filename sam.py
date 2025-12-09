@@ -1,20 +1,17 @@
 import torch
-from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-from sam2.build_sam import build_sam2
-from sam2.utils.amg import rle_to_mask
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
 import cv2
 import numpy as np
-from pycocotools import mask as mask_utils
 import os
-from models import SAM2Model
+from models import SAMModel
 
 
 def show_anns(anns, image, output_path="mask_visualization.png", borders=True, display=True):
     """
     Create and optionally display masks on the image using OpenCV.
-    
+
     Args:
-        anns: List of mask dictionaries from SAM2AutomaticMaskGenerator
+        anns: List of mask dictionaries from SamAutomaticMaskGenerator
         image: The original image (numpy array in RGB format)
         output_path: Path where to save the visualization
         borders: Whether to draw borders around masks
@@ -70,15 +67,8 @@ def show_anns(anns, image, output_path="mask_visualization.png", borders=True, d
     contour_thickness = max(1, int(min(5, 0.01 * min(h, w))))
     
     for i, ann in enumerate(sorted_anns):
-        # Decode mask based on output format
-        if isinstance(ann['segmentation'], dict):
-            rle = ann['segmentation']
-            if 'size' in rle and 'counts' in rle:
-                mask = mask_utils.decode(rle)
-            else:
-                mask = rle_to_mask(rle)
-        else:
-            mask = ann['segmentation'].astype(np.uint8)
+        # SAM 1 returns binary masks directly in 'segmentation'
+        mask = ann['segmentation'].astype(np.uint8)
         
         # Get color for this mask
         color = colors[i % len(colors)]
@@ -132,7 +122,7 @@ def show_anns(anns, image, output_path="mask_visualization.png", borders=True, d
         else:
             display_image = overlay_with_text
         
-        cv2.imshow('SAM2 Mask Visualization', display_image)
+        cv2.imshow('SAM Mask Visualization', display_image)
         print(f"Displaying visualization with {len(anns)} masks. Press any key to close.")
         cv2.waitKey(0)
         cv2.destroyAllWindows()
@@ -150,11 +140,11 @@ def process_image_with_sam(
     max_dimension=None
 ):
     """
-    Process an image with SAM2 model to generate masks.
-    
+    Process an image with SAM model to generate masks.
+
     Args:
         image_path: Path to the input image
-        selected_model: SAM2Model enum value (e.g., SAM2Model.LARGE)
+        selected_model: SAMModel enum value (e.g., SAMModel.VIT_H)
         visualize: Whether to create and display a visualization (default: False)
         output_masks: Whether to save individual masks to a folder (default: False)
         visualization_output_path: Path where to save the visualization (default: "mask_visualization.png")
@@ -162,9 +152,9 @@ def process_image_with_sam(
         mask_name_digits: Number of digits for mask filenames (default: 4)
         mask_start_index: Starting index for mask numbering (default: 1)
         max_dimension: Maximum dimension for resizing (default: None = no downsampling)
-    
+
     Returns:
-        List of mask dictionaries from SAM2AutomaticMaskGenerator
+        List of mask dictionaries from SamAutomaticMaskGenerator
     """
     # Check for available device: prefer CUDA (NVIDIA GPU), then MPS (Apple Silicon), then CPU
     if torch.cuda.is_available():
@@ -176,12 +166,13 @@ def process_image_with_sam(
     else:
         device = torch.device("cpu")
         print(f"Using device: {device} (no GPU acceleration available)")
-    
-    sam2_checkpoint = selected_model.checkpoint_path
-    model_cfg = selected_model.config_path
-    
-    # Build the SAM2 model
-    sam_model = build_sam2(model_cfg, sam2_checkpoint, device=device)
+
+    sam_checkpoint = selected_model.checkpoint_path
+    model_type = selected_model.model_type
+
+    # Build the SAM model using the registry
+    sam_model = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+    sam_model.to(device=device)
     
     # Load and process your image
     image = cv2.imread(image_path)
@@ -202,8 +193,8 @@ def process_image_with_sam(
     else:
         print(f"Processing image at full resolution: {w}x{h}")
     
-    # Use coco_rle output mode for memory efficiency with large images
-    mask_generator = SAM2AutomaticMaskGenerator(sam_model, output_mode="coco_rle")
+    # Create the automatic mask generator
+    mask_generator = SamAutomaticMaskGenerator(sam_model)
     
     print("Generating masks...")
     masks = mask_generator.generate(image_rgb)
@@ -212,25 +203,18 @@ def process_image_with_sam(
     # Save individual masks if requested
     if output_masks:
         os.makedirs(output_masks_dir, exist_ok=True)
-        
+
         for idx, ann in enumerate(masks, start=mask_start_index):
-            # Decode mask based on output format
-            if isinstance(ann['segmentation'], dict):
-                rle = ann['segmentation']
-                if 'size' in rle and 'counts' in rle:
-                    mask = mask_utils.decode(rle)
-                else:
-                    mask = rle_to_mask(rle)
-            else:
-                mask = ann['segmentation'].astype(np.uint8)
-            
+            # SAM 1 returns binary masks directly in 'segmentation'
+            mask = ann['segmentation'].astype(np.uint8)
+
             # Ensure mask is 2D uint8 {0,255}
-            mask_uint8 = (mask.astype(np.uint8) * 255) if mask.max() <= 1 else (mask > 0).astype(np.uint8) * 255
-            
+            mask_uint8 = (mask * 255) if mask.max() <= 1 else (mask > 0).astype(np.uint8) * 255
+
             filename = f"{idx:0{mask_name_digits}d}.png"
             out_path = os.path.join(output_masks_dir, filename)
             cv2.imwrite(out_path, mask_uint8)
-        
+
         print(f"Saved {len(masks)} masks to {output_masks_dir}/")
     
     # Create and save visualization if output path is provided
