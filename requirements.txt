@@ -1,7 +1,10 @@
-numpy
-opencv-python
-pycocotools
-torch
-torchvision
-git+https://github.com/facebookresearch/segment-anything.git
+# NOTE: Do NOT include torch/torchvision here!
+# Lambda AI has system-installed PyTorch with CUDA support.
+# Installing torch from PyPI will replace it with CPU-only version.
+# See SETUP.md for details.
 
+numpy<2
+opencv-python
+pillow
+pycocotools
+git+https://github.com/facebookresearch/segment-anything.git
